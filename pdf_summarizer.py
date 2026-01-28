@@ -1,6 +1,8 @@
 import os
+import sys
 import json
 import time
+from dotenv import load_dotenv
 import pandas as pd
 import google.generativeai as genai
 from google.api_core import exceptions
@@ -8,10 +10,13 @@ import schedule
 import pytz
 from datetime import datetime, timedelta
 
+# Cargar variables de entorno desde .env
+load_dotenv(override=True)
+
 # Configuración
 CONFIG = {
-    "api_key": "AIzaSyBjdY77vxDM_CtX7qRVo6_YqzJRsw7_Ucs",
-    "model_name": "models/gemini-2.0-flash-exp", 
+    "api_key": sys.argv[1] if len(sys.argv) > 1 else os.getenv("GEMINI_API_KEY"),
+    "model_name": "models/gemini-flash-latest", 
     "source_folder": r"C:\Proyectos\Aventi\Fichas Tecnicas",
     "report_path": r"C:\Proyectos\Aventi\pdf_summary_report.xlsx",
     "registry_path": r"C:\Proyectos\Aventi\registry.json",
@@ -20,6 +25,11 @@ CONFIG = {
 }
 
 # Configurar Gemini
+if not CONFIG["api_key"]:
+    print("ERROR: No se encontró la API Key en la variable de entorno 'GEMINI_API_KEY'.")
+    print("Por favor, asegúrate de haberla configurado correctamente.")
+    exit(1)
+
 genai.configure(api_key=CONFIG["api_key"])
 
 def load_registry():
@@ -59,6 +69,8 @@ def generate_summary_ai(pdf_path, retries=3):
             model = genai.GenerativeModel(CONFIG["model_name"])
             
             print(f"Intento {attempt + 1}: Subiendo a Gemini: {os.path.basename(pdf_path)}")
+            # Forzar carga de configuración para estar seguros
+            current_key = os.getenv("GEMINI_API_KEY")
             file = genai.upload_file(pdf_path, mime_type="application/pdf")
             
             prompt = (
@@ -93,7 +105,12 @@ def generate_summary_ai(pdf_path, retries=3):
                 time.sleep(wait_time)
         except Exception as e:
             wait_time = (2 ** attempt) * 5
-            print(f"Error en intento {attempt + 1} para {os.path.basename(pdf_path)}: {e}. Reintentando en {wait_time}s...")
+            # Limpiar el error para no mostrar la API Key si aparece en la URL
+            error_msg = str(e)
+            if CONFIG["api_key"] in error_msg:
+                error_msg = error_msg.replace(CONFIG["api_key"], "REDACTED_API_KEY")
+            
+            print(f"Error en intento {attempt + 1} para {os.path.basename(pdf_path)}: {error_msg}. Reintentando en {wait_time}s...")
             time.sleep(wait_time)
             
     return f"Error tras {retries} intentos: No se pudo procesar con IA."
